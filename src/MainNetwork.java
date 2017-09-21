@@ -1,10 +1,8 @@
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
-import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Random;
@@ -12,7 +10,9 @@ import java.util.Random;
 public class MainNetwork {
     private final int N = 200;
     private int P = 40;
-    private double BETA = 2;
+    private double BETA2 = 2;
+    private double ETA = 0.02;
+    private double BETA3 = 0.5;
     private double[][] w = new double[N][N];
     private int[][] patterns = new int[P][N];
     private int[] network = new int[N];
@@ -120,7 +120,7 @@ public class MainNetwork {
     }
 
     public double g(int i){
-        return 1 / (1 + Math.exp(-2*BETA*b(i)));
+        return 1 / (1 + Math.exp(-2* BETA2 *b(i)));
     }
 
     public double b(int i){
@@ -144,8 +144,9 @@ public class MainNetwork {
 
         //task1b();
 
-        task2a();
+        //task2a();
 
+        task3a();
     }
 
     public void task1b(){
@@ -254,6 +255,103 @@ public class MainNetwork {
         }
     }
 
+    private double[] weights3a = new double[2];
+    private double threshold3a = 0;
+    private double[] inputs3a = new double[2];
+    private LinkedList<Truple> trainingSet;
+    private LinkedList<Truple> validationSet;
+
+    private void task3a() {
+        trainingSet = fileToList("training.txt");
+        validationSet = fileToList("validation.txt");
+        normalizeInputs(trainingSet);
+        normalizeInputs(validationSet);
+
+        for (int run = 1; run <= 10; run++) {
+            double output = 0;
+            for (int i = 0; i < 2; i++) {
+                weights3a[i] = rand.nextDouble() * 0.4 - 0.2;
+            }
+            threshold3a = rand.nextDouble() * 2 - 1;
+            for (int i = 0; i < 1000*1000; i++) {
+                int randNum = rand.nextInt(trainingSet.size());
+                feedPattern3a(randNum, trainingSet);
+                output = activation3a(b3a());
+                //Update weights
+                weights3a[0] += 0;
+            }
+        }
+    }
+
+    private void feedPattern3a(int index, LinkedList<Truple> list) {
+        inputs3a[0] = list.get(index).x;
+        inputs3a[1] = list.get(index).y;
+    }
+
+    private LinkedList<Truple> fileToList(String path) {
+        LinkedList<Truple> list = new LinkedList<>();
+        try {
+            List<String> strList = Files.readAllLines(Paths.get(path), Charset.forName("UTF-8"));
+            for (String str :
+                    strList) {
+                String[] values = str.split("\t");
+                list.add(new Truple(Double.parseDouble(values[0]), Double.parseDouble(values[1]), Double.parseDouble(values[2])));
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return list;
+    }
+
+    private void normalizeInputs(LinkedList<Truple> list){
+        double meanX = 0;
+        double meanY = 0;
+        double meanOfSquareX = 0;
+        double meanOfSquareY = 0;
+
+        //Calculate mean of our two columns
+        for (Truple trup : list) {
+            meanX += trup.x;
+            meanY += trup.y;
+        }
+        meanX /= list.size();
+        meanY /= list.size();
+
+        //Subtract the mean from all values in both columns, setting mean to 0
+        for (Truple t : list) {
+            t.x -= meanX;
+            t.y -= meanY;
+        }
+
+        //Sum up the squares of all our values.
+        for (Truple trup : list) {
+            meanOfSquareX += trup.x*trup.x;
+            meanOfSquareY += trup.y*trup.y;
+        }
+        double varOfX = meanOfSquareX / list.size();
+        double varOfY = meanOfSquareY / list.size();
+        System.out.println("XVAR "+ varOfX);
+        //Divide by the standard deviation to achieve unit variance.
+        for (Truple t : list) {
+            t.x /= Math.sqrt(varOfX);
+            t.y /= Math.sqrt(varOfY);
+        }
+
+    }
+
+    private double activation3a(double b){
+        return Math.tanh(BETA3*b);
+    }
+
+    private double b3a(){
+        double result = 0;
+        for (int i = 0; i < 2; i++) {
+            result += weights3a[i]*inputs3a[i];
+        }
+        result -= threshold3a;
+        return result;
+    }
+
     private double getM(int pattern) {
         double result = 0;
         for (int i = 0; i < N; i++) {
@@ -265,5 +363,16 @@ public class MainNetwork {
 
     public static void main(String[] args) throws IOException {
         MainNetwork mn = new MainNetwork();
+    }
+
+    private class Truple {
+        public double x;
+        public double y;
+        public double z;
+        public Truple(double x, double y, double z){
+            this.x = x;
+            this.y = y;
+            this.z = z;
+        }
     }
 }
