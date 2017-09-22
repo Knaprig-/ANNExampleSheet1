@@ -7,6 +7,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Random;
 
+@SuppressWarnings("ALL")
 public class MainNetwork {
 	
 	private Random rand = new Random();
@@ -30,7 +31,9 @@ public class MainNetwork {
 	private double threshold3a = 0;
 	private LinkedList<Truple> trainingSet;
 	private LinkedList<Truple> validationSet;
-	
+	private LinkedList<Tuple> trainingEnergyList = new LinkedList<>();
+	private LinkedList<Tuple> validationEnergyList = new LinkedList<>();
+
 	
 	/**
 	 * A simple two-value tuple.
@@ -366,8 +369,16 @@ public class MainNetwork {
 		validationSet = fileToList("validation.txt");
 		normalizeInputs(trainingSet);
 		normalizeInputs(validationSet);
-		
+		double[] classificationsTraining = new double[10];
+		double[] classificationsValidation = new double[10];
+
+		//Reset exported data.
+		Files.write(Paths.get("3aOutput.txt"), "".getBytes());
+
 		for (int run = 1; run <= 10; run++) {
+			trainingEnergyList.clear();
+			validationEnergyList.clear();
+			System.out.println(".");
 			//Set up weights and threshold randomly
 			for (int i = 0; i < 2; i++) {
 				weights3a[i] = rand.nextDouble() * 0.4 - 0.2;
@@ -379,12 +390,127 @@ public class MainNetwork {
 				int randNum = rand.nextInt(trainingSet.size());
 				feedPattern3a(randNum, trainingSet);
 				output3a = activation3a(b3a());
+				double error = (trainingSet.get(randNum).z-output3a)*activation3aPrime(b3a());
 				//Update weights
-				weights3a[0] += 0; //TODO
+				weights3a[0] += ETA*error*inputs3a[0];
+				weights3a[1] += ETA*error*inputs3a[1];
+				//Update Threshold
+				threshold3a += -ETA*error;
+				if (i % 5000 == 0){
+					double trainingEnergy = getEnergy(trainingSet);
+					trainingEnergyList.add(new Tuple(i, trainingEnergy));
+					double validationEnergy = getEnergy(validationSet);
+					validationEnergyList.add(new Tuple(i, validationEnergy));
+				}
+			}
+			exportEnergyData(trainingEnergyList, rand.nextDouble() + "," + rand.nextDouble() + ", 0.5", (2*run-1),"3aOutput.txt");
+			exportEnergyData(validationEnergyList, "0.5," + rand.nextDouble() + "," + rand.nextDouble(), (2*run), "3aOutput.txt");
+			classificationsTraining[run-1] = getC(trainingSet);
+			classificationsValidation[run-1] = getC(validationSet);
+		}
+		//More output for Mathematica
+		StringBuilder sb = new StringBuilder();
+		sb.append("Show[");
+		for (int i = 1; i <= 10; i++) {
+			sb.append("g" + (2*i-1) + ",");
+		}
+		sb.append(" PlotRange->{{0, 1000000},{50,200}}]\n");
+		Files.write(Paths.get("3aOutput.txt"), sb.toString().getBytes(), StandardOpenOption.APPEND);
+		sb = new StringBuilder();
+		sb.append("Show[");
+		for (int i = 1; i <= 10; i++) {
+			sb.append("g" + (2*i) + ",");
+		}
+		sb.append(" PlotRange->{{0, 1000000},{50,200}}]");
+		Files.write(Paths.get("3aOutput.txt"), sb.toString().getBytes(), StandardOpenOption.APPEND);
+
+		double averageClass = 0;
+		double minimumClass = 400000;
+		double varianceClass = 0;
+		for (int i = 0; i < 10; i++) {
+			averageClass += classificationsTraining[i];
+			if (classificationsTraining[i] < minimumClass){
+				minimumClass = classificationsTraining[i];
+			}
+			varianceClass += Math.pow(classificationsTraining[i],2);
+		}
+		averageClass = (averageClass / 10);
+		varianceClass = (varianceClass/10) - Math.pow(averageClass,2);
+		System.out.println("Trainingset values:\n Avr:" + averageClass + "\nmin: " + minimumClass + "\nvar:" + varianceClass);
+
+		averageClass = 0;
+		minimumClass = 400000;
+		varianceClass = 0;
+		for (int i = 0; i < 10; i++) {
+			averageClass += classificationsValidation[i];
+			if (classificationsValidation[i] < minimumClass){
+				minimumClass = classificationsValidation[i];
+			}
+			varianceClass += Math.pow(classificationsValidation[i],2);
+		}
+		averageClass = (averageClass / 10);
+		varianceClass = (varianceClass/10) - Math.pow(averageClass,2);
+		System.out.println("Validationset values:\n Avr:" + averageClass + "\nmin: " + minimumClass + "\nvar:" + varianceClass);
+	}
+
+	private double getEnergy(LinkedList<Truple> list) {
+		double result = 0;
+		for (int i = 0; i < list.size(); i++) {
+			feedPattern3a(i, list);
+			output3a = activation3a(b3a());
+			result += Math.pow(list.get(i).z - output3a, 2);
+		}
+		result /= 2;
+		return result;
+	}
+
+	private void exportEnergyData(LinkedList<Tuple> list, String s, int index, String filePath) throws IOException {
+
+		StringBuilder sb = new StringBuilder();
+
+		sb.append("g" + index + " = ListPlot[{");
+		for (int j = 0; j < list.size(); j++) {
+			sb.append("{" + list.get(j).x + "," + list.get(j).y + "}");
+			if (j != list.size() - 1) {
+				sb.append(", ");
 			}
 		}
+		sb.append("}, Joined -> True, PlotRange->{0,200}, PlotStyle->RGBColor[" +
+				s + "]];\n\n");
+		Files.write(Paths.get(filePath), sb.toString().getBytes(), StandardOpenOption.APPEND);
 	}
-	
+
+	private double getC(LinkedList<Truple> dataSet) {
+		double result = 0;
+		for (int i = 0; i < dataSet.size(); i++) {
+			feedPattern3a(i, dataSet);
+			output3a = activation3a(b3a());
+			result += Math.abs(signum(output3a) - dataSet.get(i).z);
+		}
+		result /= 2*dataSet.size();
+		return result;
+	}
+
+	private double getC3b(LinkedList<Truple> dataSet) {
+		double result = 0;
+		for (int i = 0; i < dataSet.size(); i++) {
+			feedPattern3b(i, dataSet);
+			iterateRight3b();
+			result += Math.abs(signum(output3b) - dataSet.get(i).z);
+		}
+		result /= 2*dataSet.size();
+		return result;
+	}
+
+	/**
+	 * Returns the value of the derivation of our activation function tanh(Beta * b).
+	 * @param b3a input parameter.
+	 * @return the value of the derivation of our activation function tanh(Beta * b).
+	 */
+	private double activation3aPrime(double b3a) {
+		return BETA3/Math.pow(Math.cosh(BETA3*b3a),2);
+	}
+
 	/**
 	 * EXERCISE 3
 	 * Feed the indicated pattern to the percpetron's input nodes.
@@ -499,13 +625,229 @@ public class MainNetwork {
 		
 		//Exercise 3
 		try {
-			task3a();
+			//task3a();
+			task3b();
 		} catch (IOException e) {
-			System.out.println("TASK 3A ERROR");
+			System.out.println("TASK 3 ERROR");
 			e.printStackTrace();
 		}
 	}
-	
+
+	double[] inputs3b = new double[2];
+	double[][] hiddenWeights = new double[4][2];
+	double[] hiddenlayer = new double[4];
+	double[] hiddenThresholds = new double[4];
+	double[] outputWeights = new double[4];
+	double outputThreshold = 0;
+	double output3b = 0;
+
+	private void task3b() throws IOException {
+		//Prepare our data
+		trainingSet = fileToList("training.txt");
+		validationSet = fileToList("validation.txt");
+		normalizeInputs(trainingSet);
+		normalizeInputs(validationSet);
+		double[] classificationsTraining = new double[10];
+		double[] classificationsValidation = new double[10];
+
+		//Reset exported data.
+		Files.write(Paths.get("3bOutput.txt"), "".getBytes());
+
+		for (int run = 1; run <= 10; run++) {
+			trainingEnergyList.clear();
+			validationEnergyList.clear();
+			System.out.println(".");
+			//Set up weights and threshold randomly
+			for (int i = 0; i < outputWeights.length; i++) {
+				outputWeights[i] = rand.nextDouble() * 0.4 - 0.2;
+			}
+			for (int i = 0; i < hiddenWeights.length; i++) {
+				for (int j = 0; j < hiddenWeights[0].length; j++) {
+					hiddenWeights[i][j] = rand.nextDouble() * 0.4 - 0.2;
+				}
+			}
+			outputThreshold = rand.nextDouble() * 2 - 1;
+			for (int i = 0; i < hiddenThresholds.length; i++) {
+				hiddenThresholds[i] = rand.nextDouble() * 2 - 1;
+			}
+
+			//Run the network for a 10^6 iterations
+			for (int iteration = 0; iteration < 1000 * 1000; iteration++) {
+				int randNum = rand.nextInt(trainingSet.size());
+				feedPattern3b(randNum, trainingSet);
+				//Iterate Right
+				iterateRight3b();
+
+				//Calc errors
+				double iError = (trainingSet.get(randNum).z-output3b)*activation3aPrime(bi3b());
+				double[] jErrors = new double[4];
+				for (int j = 0; j < hiddenlayer.length; j++) {
+					jErrors[j] = iError * outputWeights[j] * activation3aPrime(bj3b(j));
+				}
+
+				//Update hidden layer weights
+				for (int j = 0; j < hiddenWeights.length; j++) {
+					for (int k = 0; k < hiddenWeights[0].length; k++) {
+						hiddenWeights[j][k] += ETA * jErrors[j] * inputs3b[k];
+					}
+				}
+				//Update hidden thresholds
+				for (int j = 0; j < hiddenThresholds.length; j++) {
+					hiddenThresholds[j] += -ETA * jErrors[j];
+				}
+				//Update output weights
+				for (int j = 0; j < outputWeights.length; j++) {
+					outputWeights[j] += ETA * iError * hiddenlayer[j];
+				}
+				//Update output threshold
+				outputThreshold += -ETA*iError;
+
+				if (iteration % 5000 == 0){
+					double trainingEnergy = getEnergy3b(trainingSet);
+					trainingEnergyList.add(new Tuple(iteration, trainingEnergy));
+					double validationEnergy = getEnergy3b(validationSet);
+					validationEnergyList.add(new Tuple(iteration, validationEnergy));
+				}
+			}
+			exportEnergyData(trainingEnergyList, rand.nextDouble() + "," + rand.nextDouble() + ", 0.5", (2*run-1), "3bOutput.txt");
+			exportEnergyData(validationEnergyList, "0.5," + rand.nextDouble() + "," + rand.nextDouble(), (2*run),"3bOutput.txt");
+			classificationsTraining[run-1] = getC3b(trainingSet);
+			classificationsValidation[run-1] = getC3b(validationSet);
+		}
+		//More output for Mathematica
+		StringBuilder sb = new StringBuilder();
+		sb.append("Show[");
+		for (int i = 1; i <= 10; i++) {
+			sb.append("g" + (2*i-1) + ",");
+		}
+		sb.append(" PlotRange->{{0, 1000000},{0,200}}]\n");
+		Files.write(Paths.get("3bOutput.txt"), sb.toString().getBytes(), StandardOpenOption.APPEND);
+		sb = new StringBuilder();
+		sb.append("Show[");
+		for (int i = 1; i <= 10; i++) {
+			sb.append("g" + (2*i) + ",");
+		}
+		sb.append(" PlotRange->{{0, 1000000},{0,200}}]\n");
+		Files.write(Paths.get("3bOutput.txt"), sb.toString().getBytes(), StandardOpenOption.APPEND);
+
+		double averageClass = 0;
+		double minimumClass = 400000;
+		double varianceClass = 0;
+		for (int i = 0; i < 10; i++) {
+			averageClass += classificationsTraining[i];
+			if (classificationsTraining[i] < minimumClass){
+				minimumClass = classificationsTraining[i];
+			}
+			varianceClass += Math.pow(classificationsTraining[i],2);
+		}
+		averageClass = (averageClass / 10);
+		varianceClass = (varianceClass/10) - Math.pow(averageClass,2);
+		System.out.println("Trainingset values:\n Avr:" + averageClass + "\nmin: " + minimumClass + "\nvar:" + varianceClass);
+
+		averageClass = 0;
+		minimumClass = 400000;
+		varianceClass = 0;
+		for (int i = 0; i < 10; i++) {
+			averageClass += classificationsValidation[i];
+			if (classificationsValidation[i] < minimumClass){
+				minimumClass = classificationsValidation[i];
+			}
+			varianceClass += Math.pow(classificationsValidation[i],2);
+		}
+		averageClass = (averageClass / 10);
+		varianceClass = (varianceClass/10) - Math.pow(averageClass,2);
+		System.out.println("Validationset values:\n Avr:" + averageClass + "\nmin: " + minimumClass + "\nvar:" + varianceClass);
+
+		printScatterText(trainingSet, validationSet);
+	}
+
+	private void printScatterText(LinkedList<Truple> trainingSet, LinkedList<Truple> validationSet) throws IOException {
+		StringBuilder sb = new StringBuilder();
+		sb.append("f1 = ListPlot[{");
+		for (int i = 0; i < trainingSet.size(); i++) {
+			if (trainingSet.get(i).z == 1){
+				sb.append("{" + trainingSet.get(i).x + "," + trainingSet.get(i).y + "},");
+			}
+		}
+		sb.deleteCharAt(sb.length()-1);
+		sb.append("}, PlotStyle->RGBColor[0,0,0]];\n\n");
+
+		sb.append("f2 = ListPlot[{");
+		for (int i = 0; i < validationSet.size(); i++) {
+			if (validationSet.get(i).z == 1) {
+				sb.append("{" + validationSet.get(i).x + "," + validationSet.get(i).y + "},");
+			}
+		}
+		sb.deleteCharAt(sb.length()-1);
+		sb.append("}, PlotStyle->RGBColor[0.3,0.3,0.3]];\n\n");
+
+		sb.append("f3 = ListPlot[{");
+		for (int i = 0; i < trainingSet.size(); i++) {
+			if (trainingSet.get(i).z == -1){
+				sb.append("{" + trainingSet.get(i).x + "," + trainingSet.get(i).y + "},");
+			}
+		}
+		sb.deleteCharAt(sb.length()-1);
+		sb.append("}, PlotStyle->RGBColor[0,0,1]];\n\n");
+
+		sb.append("f4 = ListPlot[{");
+		for (int i = 0; i < validationSet.size(); i++) {
+			if (validationSet.get(i).z == -1) {
+				sb.append("{" + validationSet.get(i).x + "," + validationSet.get(i).y + "},");
+			}
+		}
+		sb.deleteCharAt(sb.length()-1);
+		sb.append("}, PlotStyle->RGBColor[0.5,0.5,1]];\n\n");
+
+		for (int j = 0; j < hiddenlayer.length; j++) {
+			sb.append("l"+ j + " = Plot[("+ hiddenWeights[j][0] + "x - " + hiddenThresholds[j] + ")/" + hiddenWeights[j][1] + ", {x,-2,2}];\n");
+		}
+
+		sb.append("Show[f2,f1,f3,f4 l1,l2,l3,l0]");
+		Files.write(Paths.get("3bOutput.txt"), sb.toString().getBytes(), StandardOpenOption.APPEND);
+
+	}
+
+	private double getEnergy3b(LinkedList<Truple> list) {
+		double result = 0;
+		for (int i = 0; i < list.size(); i++) {
+			feedPattern3b(i, list);
+			iterateRight3b();
+			result += Math.pow(list.get(i).z - output3b, 2);
+		}
+		result /= 2;
+		return result;
+	}
+
+	private void iterateRight3b() {
+		for (int j = 0; j < hiddenlayer.length; j++) {
+			hiddenlayer[j] = activation3a(bj3b(j));
+		}
+		output3b = activation3a(bi3b());
+	}
+
+	private double bi3b() {
+		double result = 0;
+		for (int j = 0; j < outputWeights.length; j++) {
+			result += outputWeights[j]*hiddenlayer[j];
+		}
+		return result - outputThreshold;
+	}
+
+	private double bj3b(int j) {
+		double result = 0;
+		for (int k = 0; k < inputs3b.length; k++) {
+			result += inputs3b[k]*hiddenWeights[j][k];
+		}
+		return result - hiddenThresholds[j];
+	}
+
+
+	public void feedPattern3b(int index, LinkedList<Truple> list) {
+		inputs3b[0] = list.get(index).x;
+		inputs3b[1] = list.get(index).y;
+	}
+
 	public static void main(String[] args) {
 		MainNetwork mn = new MainNetwork();
 	}
